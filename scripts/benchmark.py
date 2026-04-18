@@ -209,6 +209,12 @@ def _parse_args() -> argparse.Namespace:
         help="Continue running all tasks even if sanity check scores 0%%",
     )
     parser.add_argument(
+        "--task-delay",
+        type=float,
+        default=10,
+        help="Seconds to wait between tasks (useful for rate-limited APIs, e.g. --task-delay 10)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Only prepare workspace and show files, don't call any model",
@@ -648,6 +654,11 @@ def main():
         task_grades = []
         task_results = []
         for run_index in range(runs_per_task):
+            # Rate-limit delay between tasks (skip before the very first task)
+            if args.task_delay > 0 and (i > 1 or run_index > 0):
+                logger.info("⏳ Waiting %.1fs between tasks (--task-delay)", args.task_delay)
+                time.sleep(args.task_delay)
+
             logger.info("\n%s", "=" * 80)
             logger.info(
                 "📋 Task %s/%s (Run %s/%s)",

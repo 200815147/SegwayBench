@@ -554,6 +554,20 @@ class MockLayer:
                 pyc.unlink()
                 logger.info("Removed cached .pyc: %s", pyc.name)
 
+        # Also write the wrapper to the benchmark workspace copy of segway_auth.py.
+        # OpenClaw may run scripts from the benchmark workspace (not the main
+        # workspace), so the mock must be present in both locations.
+        if self.workspace_path:
+            bench_auth = Path(self.workspace_path) / "skills" / "segway_auth.py"
+            if bench_auth.exists():
+                bench_auth.write_text(wrapper_source, encoding="utf-8")
+                logger.info("Wrote mock wrapper to benchmark workspace: %s", bench_auth)
+                bench_pycache = bench_auth.parent / "__pycache__"
+                if bench_pycache.exists():
+                    for pyc in bench_pycache.glob("segway_auth*.pyc"):
+                        pyc.unlink()
+                        logger.info("Removed benchmark cached .pyc: %s", pyc.name)
+
         # Also do in-process monkeypatch for backward compatibility with
         # verify_integration.py tests that call intercept() directly
         skills_dir = str(auth_path.parent)

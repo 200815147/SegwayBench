@@ -459,6 +459,13 @@ def prepare_task_workspace(skill_dir: Path, run_id: str, task: Task, agent_id: s
         else:
             logger.warning("segway_auth.py not found in %s", main_skills_dir)
 
+        # Copy shared helper modules (segway_resolve.py, segway_output.py, segway_confirm.py)
+        for helper in ("segway_resolve.py", "segway_output.py", "segway_confirm.py"):
+            helper_src = main_skills_dir / helper
+            if helper_src.exists():
+                shutil.copy2(helper_src, dest_skills_dir / helper)
+                logger.info("Copied %s to benchmark workspace", helper)
+
         # Copy only segway-* skill directories (exclude __pycache__)
         for skill_dir_src in main_skills_dir.iterdir():
             if skill_dir_src.is_dir() and skill_dir_src.name.startswith("segway"):
