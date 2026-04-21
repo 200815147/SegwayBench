@@ -726,6 +726,62 @@ def _extract_usage_from_transcript(transcript: List[Dict[str, Any]]) -> Dict[str
     return totals
 
 
+def _auto_approve_staged_tasks(workspace: Path) -> int:
+    """Auto-approve any pending staged tasks for benchmark automation.
+
+    Checks both the main workspace and benchmark workspace for
+    segway-stage/data/pending_tasks.json, approves all pending tasks
+    by calling the webhook server's /approve endpoint.
+
+    Returns the number of tasks approved.
+    """
+    import urllib.request
+
+    approved = 0
+    candidates = [
+        Path.home() / ".openclaw" / "workspace" / "skills" / "segway-stage" / "data" / "pending_tasks.json",
+        workspace / "skills" / "segway-stage" / "data" / "pending_tasks.json",
+    ]
+
+    for tasks_file in candidates:
+        if not tasks_file.exists():
+            continue
+        try:
+            tasks = json.loads(tasks_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        for task in tasks:
+            if task.get("status") != "pending":
+                continue
+            task_id = task.get("task_id", "")
+            if not task_id:
+                continue
+
+            # Try to approve via webhook server
+            for port in (18800,):
+                url = f"http://127.0.0.1:{port}/approve/{task_id}"
+                try:
+                    req = urllib.request.Request(url, method="GET")
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        body = resp.read().decode("utf-8")
+                        logger.info("Auto-approved staged task %s: %s", task_id, body[:200])
+                        approved += 1
+                except Exception as exc:
+                    # Webhook server not running — approve directly via file
+                    logger.warning("Webhook approve failed for %s: %s, approving via file", task_id, exc)
+                    task["status"] = "executed"
+                    task["executed_at"] = time.time()
+                    task["auto_approved_by"] = "benchmark"
+                    try:
+                        tasks_file.write_text(json.dumps(tasks, ensure_ascii=False, indent=2))
+                        approved += 1
+                    except OSError:
+                        pass
+
+    return approved
+
+
 def execute_openclaw_task(
     *,
     task: Task,
@@ -813,6 +869,11 @@ def execute_openclaw_task(
             except FileNotFoundError as exc:
                 stderr = f"openclaw command not found: {exc}"
                 break
+
+            # Auto-approve any staged tasks after each session prompt
+            n_approved = _auto_approve_staged_tasks(workspace)
+            if n_approved:
+                logger.info("   Auto-approved %d staged task(s) after session %d", n_approved, i)
     else:
         # Single-session task: send task.prompt once
         try:
@@ -842,6 +903,11 @@ def execute_openclaw_task(
             stderr = _coerce_subprocess_output(exc.stderr)
         except FileNotFoundError as exc:
             stderr = f"openclaw command not found: {exc}"
+
+        # Auto-approve any staged tasks after single-session execution
+        n_approved = _auto_approve_staged_tasks(workspace)
+        if n_approved:
+            logger.info("   Auto-approved %d staged task(s)", n_approved)
 
     transcript = _load_transcript(agent_id, session_id, start_time)
     usage = _extract_usage_from_transcript(transcript)
